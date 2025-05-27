@@ -59,11 +59,7 @@ This simulator provides a graphical interface where users can input simple C++ c
 
 ---
 
-## snippet
 
-![Screenshot](output1,jpg)
-![Screenshot](output2.jpg)
-![Screenshot](output3.jpg)
 
 
 
