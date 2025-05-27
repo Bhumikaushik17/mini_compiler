@@ -1,0 +1,188 @@
+import tkinter as tk
+from tkinter import ttk, scrolledtext, messagebox
+import matplotlib.pyplot as plt
+from collections import defaultdict
+from PIL import Image, ImageTk
+import os
+import re
+import uuid
+
+# -------- Compiler Logic --------
+
+def lexical_analysis(code):
+    keywords = {'int', 'float', 'return', 'if', 'else', 'while', 'for'}
+    operators = {'+', '-', '*', '/', '=', '<', '>', '==', '++', '--'}
+    separators = {'(', ')', '{', '}', ';', ','}
+
+    tokens = []
+    code = re.sub(r'([{}();,+\-*/=<>])', r' \1 ', code)
+    words = code.split()
+
+    for word in words:
+        if word in keywords:
+            tokens.append(('KEYWORD', word))
+        elif word in operators:
+            tokens.append(('OPERATOR', word))
+        elif word in separators:
+            tokens.append(('SEPARATOR', word))
+        elif word.isdigit():
+            tokens.append(('NUMBER', word))
+        elif re.match(r'^[a-zA-Z_]\w*$', word):
+            tokens.append(('IDENTIFIER', word))
+        else:
+            tokens.append(('UNKNOWN', word))
+    return tokens
+
+def generate_ast(tokens):
+    return [tok for tok in tokens if tok[0] != 'SEPARATOR']
+
+def generate_intermediate_code(tokens):
+    code_lines = []
+    i = 1
+    for j in range(len(tokens) - 4):
+        if (tokens[j][0], tokens[j+1][1], tokens[j+2][0]) == ('IDENTIFIER', '=', 'IDENTIFIER'):
+            var = tokens[j][1]
+            left = tokens[j+2][1]
+            op = tokens[j+3][1]
+            right = tokens[j+4][1]
+            temp = f"t{i} = {left} {op} {right}"
+            code_lines.append(temp)
+            code_lines.append(f"{var} = t{i}")
+            i += 1
+    if not code_lines:
+        code_lines.append("No complex expression found.")
+    return "\n".join(code_lines)
+
+def optimize_intermediate_code(ic):
+    lines = ic.split('\n')
+    optimized = []
+    for line in lines:
+        if "* 1" in line or "+ 0" in line:
+            line = line.replace("* 1", "").replace("+ 0", "")
+        optimized.append(line)
+    return "\n".join(optimized)
+
+def draw_tree_image(title, token_pairs):
+    fig, ax = plt.subplots()
+    ax.axis('off')
+    y = 0
+    for i, (typ, val) in enumerate(token_pairs):
+        ax.text(0.5, 1 - i * 0.1, f"{typ}: {val}", ha='center', fontsize=10)
+    path = f"tree_{uuid.uuid4().hex}.png"
+    fig.savefig(path)
+    plt.close(fig)
+    return path
+
+# -------- GUI Logic --------
+
+def compile_code():
+    code = code_input.get("1.0", tk.END).strip()
+    if not code:
+        messagebox.showwarning("Input Needed", "Please enter some C++ code.")
+        return
+
+    tokens = lexical_analysis(code)
+
+    # --- Token Table ---
+    for widget in token_table_frame.winfo_children():
+        widget.destroy()
+
+    categorized = defaultdict(list)
+    for typ, val in tokens:
+        categorized[typ].append(val)
+
+    headers = list(categorized.keys())
+    for i, header in enumerate(headers):
+        ttk.Label(token_table_frame, text=header, relief='solid', padding=5).grid(row=0, column=i, sticky='nsew')
+        for j, val in enumerate(categorized[header]):
+            ttk.Label(token_table_frame, text=val, padding=5).grid(row=j+1, column=i, sticky='nsew')
+
+    # --- Parse Tree Image ---
+    parse_img_path = draw_tree_image("Parse Tree", tokens)
+    parse_img = Image.open(parse_img_path)
+    parse_img.thumbnail((400, 300))
+    parse_img = ImageTk.PhotoImage(parse_img)
+    parse_tree_canvas.config(image=parse_img)
+    parse_tree_canvas.image = parse_img
+
+    # --- AST Tree Image ---
+    ast_tokens = generate_ast(tokens)
+    ast_img_path = draw_tree_image("AST", ast_tokens)
+    ast_img = Image.open(ast_img_path)
+    ast_img.thumbnail((400, 300))
+    ast_img = ImageTk.PhotoImage(ast_img)
+    ast_tree_canvas.config(image=ast_img)
+    ast_tree_canvas.image = ast_img
+
+    # --- Intermediate Code ---
+    ic = generate_intermediate_code(tokens)
+    intermediate_output.config(state=tk.NORMAL)
+    intermediate_output.delete("1.0", tk.END)
+    intermediate_output.insert(tk.END, ic)
+    intermediate_output.config(state=tk.DISABLED)
+
+    # --- Optimized Code ---
+    optimized = optimize_intermediate_code(ic)
+    optimized_output.config(state=tk.NORMAL)
+    optimized_output.delete("1.0", tk.END)
+    optimized_output.insert(tk.END, optimized)
+    optimized_output.config(state=tk.DISABLED)
+
+# -------- GUI Layout --------
+
+root = tk.Tk()
+root.title("C++ Compiler Simulator with Tree Visuals")
+root.geometry("1200x900")
+
+main_frame = tk.Frame(root)
+main_frame.pack(fill='both', expand=True)
+
+canvas = tk.Canvas(main_frame)
+scroll_y = tk.Scrollbar(main_frame, orient='vertical', command=canvas.yview)
+scrollable_frame = tk.Frame(canvas)
+scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+canvas.create_window((0, 0), window=scrollable_frame, anchor='nw')
+canvas.configure(yscrollcommand=scroll_y.set)
+canvas.pack(side='left', fill='both', expand=True)
+scroll_y.pack(side='right', fill='y')
+
+# Code Input
+code_label = ttk.Label(scrollable_frame, text="Enter C++ Code:", font=('Arial', 12, 'bold'))
+code_label.pack(pady=(10, 0))
+code_input = scrolledtext.ScrolledText(scrollable_frame, height=8, width=120)
+code_input.pack(pady=5)
+
+# Compile Button
+tt_button = ttk.Button(scrollable_frame, text="Run Compiler", command=compile_code)
+tt_button.pack(pady=10)
+
+# Token Table
+ttk.Label(scrollable_frame, text="Token Table", font=('Arial', 11, 'bold')).pack()
+token_table_frame = tk.Frame(scrollable_frame)
+token_table_frame.pack(pady=5)
+
+# Parse Tree
+ttk.Label(scrollable_frame, text="Parse Tree (Image Format)", font=('Arial', 11, 'bold')).pack()
+parse_tree_canvas = tk.Label(scrollable_frame)
+parse_tree_canvas.pack(pady=5)
+
+# AST Tree
+ttk.Label(scrollable_frame, text="Abstract Syntax Tree (Image Format)", font=('Arial', 11, 'bold')).pack()
+ast_tree_canvas = tk.Label(scrollable_frame)
+ast_tree_canvas.pack(pady=5)
+
+# Intermediate Code
+intermediate_label = ttk.Label(scrollable_frame, text="Intermediate Code", font=('Arial', 11, 'bold'))
+intermediate_label.pack()
+intermediate_output = scrolledtext.ScrolledText(scrollable_frame, height=6, width=120, state=tk.DISABLED)
+intermediate_output.pack(pady=5)
+
+# Optimized Code
+optimized_label = ttk.Label(scrollable_frame, text="Optimized Code", font=('Arial', 11, 'bold'))
+optimized_label.pack()
+optimized_output = scrolledtext.ScrolledText(scrollable_frame, height=6, width=120, state=tk.DISABLED)
+optimized_output.pack(pady=5)
+
+root.mainloop()
+
+# Note: Temporary image files are created and displayed for trees.
